@@ -3,6 +3,8 @@ package headers
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"strings"
 )
 
 var ERROR_INVALID_FIELD_VALUE = errors.New("space before colon")
@@ -10,7 +12,7 @@ var ERROR_INVALID_FIELD_VALUE = errors.New("space before colon")
 const whitespace = " \t"
 
 var (
-	SEPERATOR = []byte("\r\n")
+	seperator = []byte("\r\n")
 )
 
 type Headers map[string]string
@@ -21,12 +23,10 @@ func NewHeaders() Headers {
 
 func parseHeaderLine(data []byte) (string, string, error) {
 	var key, value string
-	colonIdx := bytes.IndexByte(data, ':')
-	if colonIdx == -1 {
+	fieldName, fieldValue, ok := bytes.Cut(data, []byte{':'})
+	if !ok {
 		return key, value, nil
 	}
-	fieldName := data[:colonIdx]
-	fieldValue := data[colonIdx+1:]
 
 	//Not allowed space before colon
 	if bytes.ContainsAny(fieldName, whitespace) {
@@ -39,25 +39,64 @@ func parseHeaderLine(data []byte) (string, string, error) {
 	return key, value, nil
 }
 
-func (h Headers) Parse(data []byte) (n int, done bool, err error) {
+func (h Headers) Parse(data []byte) (int, bool, error) {
 	read := 0
+	done := false
 	for {
-		lineIdx := bytes.Index(data[read:], SEPERATOR)
+		lineIdx := bytes.Index(data[read:], seperator)
 
 		if lineIdx == -1 {
-			return 0, false, nil
+			return read, false, nil
 		}
 
 		//End of headers as seperator at start of data
 		if lineIdx == 0 {
-			return read + len(SEPERATOR), true, nil
+			read += len(seperator)
+			done = true
+			break
 		}
 
 		key, value, err := parseHeaderLine(data[read : read+lineIdx])
 		if err != nil {
 			return 0, false, err
 		}
-		h[key] = value
-		read += lineIdx + len(SEPERATOR)
+
+		if valid := validFieldName([]byte(key)); !valid {
+			return 0, false, fmt.Errorf("invalid character in field name")
+		}
+		lowerKey := strings.ToLower(key)
+		if existing, ok := h[lowerKey]; ok {
+			newVal := fmt.Sprintf("%s %s", existing, value)
+			h[lowerKey] = newVal
+		} else {
+			h[lowerKey] = value
+
+		}
+		read += lineIdx + len(seperator)
 	}
+
+	return read, done, nil
+}
+
+var validSpecialChars = []byte("!#$%&'*+-.^_`|~")
+
+func validFieldName(name []byte) bool {
+	for _, b := range name {
+		if b >= 'a' && b <= 'z' {
+			continue
+		}
+		if b >= 'A' && b <= 'Z' {
+			continue
+		}
+		if b >= '0' && b <= '9' {
+			continue
+		}
+		if bytes.ContainsAny(validSpecialChars, string(b)) {
+			continue
+		}
+
+		return false
+	}
+
+	return true
 }

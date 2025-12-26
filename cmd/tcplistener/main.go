@@ -28,9 +28,6 @@ func main() {
 			log.Fatal(err)
 		}
 
-		fmt.Print("Request line:\n",
-			"- Method: ", req.RequestLine.Method, "\n",
-			"- Target: ", req.RequestLine.RequestTarget, "\n",
-			"- Version: ", req.RequestLine.HttpVersion, "\n")
+		fmt.Println(req.String())
 	}
 }

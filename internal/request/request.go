@@ -3,7 +3,11 @@ package request
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
+
+	"dev.grab-a-byte.network/internal/headers"
 )
 
 var ERROR_INVALID_REQUEST_LINE = errors.New("invalid request line")
@@ -14,16 +18,18 @@ var ERROR_REQUEST_IN_ERROR_STATE = errors.New("request in error state")
 type requestStatus string
 
 const (
-	StatusInit  requestStatus = "init"
-	StatusDone  requestStatus = "done"
-	StatusError requestStatus = "error"
+	StatusInit         requestStatus = "init"
+	StatusParseHeaders requestStatus = "parse_headers"
+	StatusDone         requestStatus = "done"
+	StatusError        requestStatus = "error"
 )
 
 var SEPERATOR = []byte("\r\n")
 
 func newRequest() *Request {
 	return &Request{
-		status: StatusInit,
+		status:  StatusInit,
+		Headers: headers.NewHeaders(),
 	}
 }
 
@@ -35,7 +41,22 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	status      requestStatus
+}
+
+func (r *Request) String() string {
+	builder := strings.Builder{}
+	builder.WriteString("Request line:\n")
+	fmt.Fprintf(&builder, "- Method: %s\n", r.RequestLine.Method)
+	fmt.Fprintf(&builder, "- Target: %s\n", r.RequestLine.RequestTarget)
+	fmt.Fprintf(&builder, "- Version: %s\n", r.RequestLine.HttpVersion)
+	builder.WriteString("Headers:\n")
+	for key, value := range r.Headers {
+		value := fmt.Sprintf("- %s: %s\n", key, value)
+		builder.WriteString(value)
+	}
+	return builder.String()
 }
 
 func (r *Request) done() bool {
@@ -43,9 +64,7 @@ func (r *Request) done() bool {
 }
 
 func (r *Request) parse(data []byte) (int, error) {
-
 	read := 0
-
 outer:
 	for {
 		switch r.status {
@@ -62,8 +81,21 @@ outer:
 			}
 			r.RequestLine = *rl
 			read += n
-			r.status = StatusDone
+
+			r.status = StatusParseHeaders
 			return read, nil
+		case StatusParseHeaders:
+			n, done, err := r.Headers.Parse(data[read:])
+			if err != nil {
+				return 0, err
+			}
+
+			if !done {
+				return read + n, nil
+			}
+
+			r.status = StatusDone
+			return n, nil
 		}
 	}
 
@@ -79,13 +111,13 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 
 	for !req.done() {
 		n, err := r.Read(buf[bufLen:])
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 
 		bufLen += n
 
-		readN, err := req.parse(buf[:bufLen+n])
+		readN, err := req.parse(buf[:bufLen])
 		if err != nil {
 			return nil, err
 		}
@@ -98,15 +130,14 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 }
 
 func parseRequestLine(input []byte) (*RequestLine, int, error) {
-	idx := bytes.Index(input, SEPERATOR)
-	if idx == -1 {
+	before, _, ok := bytes.Cut(input, SEPERATOR)
+	if !ok {
 		return nil, 0, nil
 	}
 
-	startLine := input[:idx]
-	read := len(startLine) + len(SEPERATOR)
+	read := len(before) + len(SEPERATOR)
 
-	requestLineParts := bytes.Split(startLine, []byte{' '})
+	requestLineParts := bytes.Split(before, []byte{' '})
 
 	if len(requestLineParts) != 3 {
 		return nil, 0, ERROR_INVALID_REQUEST_LINE
