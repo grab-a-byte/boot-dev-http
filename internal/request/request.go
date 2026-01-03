@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"dev.grab-a-byte.network/internal/headers"
@@ -20,6 +21,7 @@ type requestStatus string
 const (
 	StatusInit         requestStatus = "init"
 	StatusParseHeaders requestStatus = "parse_headers"
+	StatusParseBody    requestStatus = "parse_body"
 	StatusDone         requestStatus = "done"
 	StatusError        requestStatus = "error"
 )
@@ -42,6 +44,7 @@ type RequestLine struct {
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	status      requestStatus
 }
 
@@ -56,6 +59,9 @@ func (r *Request) String() string {
 		value := fmt.Sprintf("- %s: %s\n", key, value)
 		builder.WriteString(value)
 	}
+
+	builder.WriteString("Body:\n")
+	builder.Write(r.Body)
 	return builder.String()
 }
 
@@ -94,8 +100,30 @@ outer:
 				return read + n, nil
 			}
 
-			r.status = StatusDone
-			return n, nil
+			read += n
+			r.status = StatusParseBody
+			return read, nil
+
+		case StatusParseBody:
+			value, ok := r.Headers.Get("content-length")
+			if !ok {
+				r.status = StatusDone
+				return 0, nil
+			}
+
+			r.Body = append(r.Body, data...)
+			length, err := strconv.Atoi(value)
+			if err != nil {
+				return 0, err
+			}
+			if len(r.Body) >= length {
+				r.status = StatusDone
+			}
+
+			if len(data) == 0 {
+				return 0, fmt.Errorf("Not enough data sent as part of body")
+			}
+			return len(data), nil
 		}
 	}
 
