@@ -71,14 +71,14 @@ func (s *Server) handle(conn net.Conn) {
 
 	buf := &bytes.Buffer{}
 	handleErr := s.handler(buf, req)
-	if handleErr != nil {
-		conn.Write([]byte(handleErr.Error()))
-		conn.Close()
-		return
-	}
 
+	statusCode := response.STATUS_OK
+	if handleErr != nil {
+		statusCode = response.StatusCode(handleErr.StatusCode)
+		buf.Write([]byte(handleErr.ErrorMessage))
+	}
 	headers := response.GetDefaultHeaders(buf.Len())
-	response.WriteStatusLine(conn, response.STATUS_OK)
+	response.WriteStatusLine(conn, statusCode)
 	response.WriteHeaders(conn, headers)
 	conn.Write([]byte("\r\n"))
 	conn.Write(buf.Bytes())
