@@ -46,6 +46,7 @@ type Request struct {
 	Headers     headers.Headers
 	Body        []byte
 	status      requestStatus
+	previousContentLength int
 }
 
 func (r *Request) String() string {
@@ -74,6 +75,8 @@ func (r *Request) parse(data []byte) (int, error) {
 outer:
 	for {
 		switch r.status {
+		case StatusError:
+			return 0, fmt.Errorf("Request in error state")
 		case StatusDone:
 			return read, nil
 		case StatusInit:
@@ -82,27 +85,30 @@ outer:
 				r.status = StatusError
 				return 0, errors.Join(ERROR_REQUEST_IN_ERROR_STATE, err)
 			}
+
 			if n == 0 {
 				break outer
 			}
+
 			r.RequestLine = *rl
 			read += n
 
 			r.status = StatusParseHeaders
-			return read, nil
 		case StatusParseHeaders:
 			n, done, err := r.Headers.Parse(data[read:])
 			if err != nil {
 				return 0, err
 			}
 
-			if !done {
-				return read + n, nil
+			if n == 0 {
+				break outer
 			}
 
 			read += n
-			r.status = StatusParseBody
-			return read, nil
+
+			if done {
+				r.status = StatusParseBody
+			}
 
 		case StatusParseBody:
 			value, ok := r.Headers.Get("content-length")
@@ -111,19 +117,27 @@ outer:
 				return 0, nil
 			}
 
-			r.Body = append(r.Body, data...)
+			if len(data) == r.previousContentLength {
+				return 0, fmt.Errorf("Not enough data sent")
+			}
+			r.previousContentLength = len(data)
+
 			length, err := strconv.Atoi(value)
 			if err != nil {
 				return 0, err
-			}
-			if len(r.Body) >= length {
-				r.status = StatusDone
 			}
 
 			if len(data) == 0 {
 				return 0, fmt.Errorf("Not enough data sent as part of body")
 			}
-			return len(data), nil
+			if len(data) < length {
+				break outer
+			}
+			r.Body = append(r.Body, data[0:length]...)
+
+			read += len(data)
+			r.status = StatusDone
+			return read, nil
 		}
 	}
 
