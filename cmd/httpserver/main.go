@@ -1,14 +1,18 @@
 package main
 
 import (
-	"io"
+	// "crypto/sha256"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	// "dev.grab-a-byte.network/internal/headers"
 	"dev.grab-a-byte.network/internal/request"
+	"dev.grab-a-byte.network/internal/response"
 	"dev.grab-a-byte.network/internal/server"
 )
 
@@ -17,23 +21,60 @@ const port = 42069
 func main() {
 	server, err := server.Serve(
 		port,
-		func(w io.Writer, req *request.Request) *server.HandlerError {
+		func(w *response.Writer, req *request.Request) {
 			path := req.RequestLine.RequestTarget
+			defaultHeaders := response.GetDefaultHeaders(0)
 			if strings.Contains(path, "/yourproblem") {
-				return &server.HandlerError{
-					StatusCode:   400,
-					ErrorMessage: "Your problem is not my problem\n",
-				}
+				defaultHeaders.Set("Content-Length", fmt.Sprintf("%d", len(badRequestHtml)))
+				w.WriteStatusLine(400)
+				w.WriteHeaders(defaultHeaders)
+				w.WriteBody([]byte(badRequestHtml))
 			}
 			if strings.Contains(path, "/myproblem") {
-				return &server.HandlerError{
-					StatusCode:   500,
-					ErrorMessage: "Woopsie, my bad\n",
-				}
+				defaultHeaders.Set("Content-Length", fmt.Sprintf("%d", len(internalServerErrorHtml)))
+				w.WriteStatusLine(500)
+				w.WriteHeaders(defaultHeaders)
+				w.WriteBody([]byte(internalServerErrorHtml))
 			}
 
-			w.Write([]byte("All good, frfr\n"))
-			return nil
+			if after, ok := strings.CutPrefix(path, "/httpbin/"); ok {
+				w.WriteStatusLine(response.STATUS_OK)
+				defaultHeaders.Remove("Content-Length")
+				defaultHeaders.Set("Transfer-Encoding", "chunked")
+				// defaultHeaders.Set("Trailer", "X-Content-SHA256, X-Content-Length")
+				w.WriteHeaders(defaultHeaders)
+				proxied := "https://httpbin.org/" + after
+				res, err := http.Get(proxied)
+				if err != nil {
+					return
+				}
+				buf := make([]byte, 1024)
+				total := strings.Builder{}
+				for {
+					n, err := res.Body.Read(buf)
+					if err != nil {
+						break
+					}
+					total.Write(buf[:n])
+					w.WriteChunkedBody(buf[:n])
+				}
+				w.WriteChunkedBodyDone()
+
+				// content := total.String()
+				// contentLen := len(content)
+				// constentSha := sha256.Sum256([]byte(content))
+
+				// trailers := headers.NewHeaders()
+				// trailers.Set("X-Content-SHA256", fmt.Sprintf("%d", contentLen))
+				// trailers.Set("X-Content-Length", fmt.Sprintf("%s", constentSha))
+				// w.WriteTrailers(trailers)
+				return
+			}
+
+			defaultHeaders.Set("Content-Length", fmt.Sprintf("%d", len(okHtml)))
+			w.WriteStatusLine(500)
+			w.WriteHeaders(defaultHeaders)
+			w.WriteBody([]byte(okHtml))
 		},
 	)
 	if err != nil {
@@ -47,3 +88,33 @@ func main() {
 	<-sigChan
 	log.Println("Server gracefully stopped")
 }
+
+const badRequestHtml = `<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>`
+
+const internalServerErrorHtml = `<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>`
+
+const okHtml = `<html>
+  <head>
+    <title>200 OK</title>
+  </head>
+  <body>
+    <h1>Success!</h1>
+    <p>Your request was an absolute banger.</p>
+  </body>
+</html>`

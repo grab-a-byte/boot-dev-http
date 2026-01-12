@@ -21,6 +21,10 @@ func NewHeaders() Headers {
 	return map[string]string{}
 }
 
+func (h Headers) Remove(key string) {
+	delete(h, strings.ToLower(key))
+}
+
 func (h Headers) Get(key string) (string, bool) {
 	val, ok := h[strings.ToLower(key)]
 	return val, ok

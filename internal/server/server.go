@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"sync/atomic"
 
@@ -69,19 +67,9 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	buf := &bytes.Buffer{}
-	handleErr := s.handler(buf, req)
+	w := response.NewWriter(conn)
+	s.handler(w, req)
 
-	statusCode := response.STATUS_OK
-	if handleErr != nil {
-		statusCode = response.StatusCode(handleErr.StatusCode)
-		buf.Write([]byte(handleErr.ErrorMessage))
-	}
-	headers := response.GetDefaultHeaders(buf.Len())
-	response.WriteStatusLine(conn, statusCode)
-	response.WriteHeaders(conn, headers)
-	conn.Write([]byte("\r\n"))
-	conn.Write(buf.Bytes())
 	err = conn.Close()
 	if err != nil {
 		panic("Failure closing connection")
@@ -97,4 +85,4 @@ func (he *HandlerError) Error() string {
 	return fmt.Sprintf("Error from handler. %d: %s", he.StatusCode, he.ErrorMessage)
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
