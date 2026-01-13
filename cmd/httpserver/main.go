@@ -1,7 +1,7 @@
 package main
 
 import (
-	// "crypto/sha256"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	// "dev.grab-a-byte.network/internal/headers"
+	"dev.grab-a-byte.network/internal/headers"
 	"dev.grab-a-byte.network/internal/request"
 	"dev.grab-a-byte.network/internal/response"
 	"dev.grab-a-byte.network/internal/server"
@@ -59,15 +59,14 @@ func main() {
 					w.WriteChunkedBody(buf[:n])
 				}
 				w.WriteChunkedBodyDone()
+				content := total.String()
+				contentLen := len(content)
+				contentSha := sha256.Sum256([]byte(content))
 
-				// content := total.String()
-				// contentLen := len(content)
-				// constentSha := sha256.Sum256([]byte(content))
-
-				// trailers := headers.NewHeaders()
-				// trailers.Set("X-Content-SHA256", fmt.Sprintf("%d", contentLen))
-				// trailers.Set("X-Content-Length", fmt.Sprintf("%s", constentSha))
-				// w.WriteTrailers(trailers)
+				trailers := headers.NewHeaders()
+				trailers.Set("X-Content-SHA256", fmt.Sprintf("%x", contentSha))
+				trailers.Set("X-Content-Length", fmt.Sprintf("%d", contentLen))
+				w.WriteTrailers(trailers)
 				return
 			}
 

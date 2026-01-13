@@ -68,6 +68,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	w := response.NewWriter(conn)
+	// w := response.NewWriter(&strings.Builder{})
 	s.handler(w, req)
 
 	err = conn.Close()

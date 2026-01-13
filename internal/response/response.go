@@ -121,8 +121,12 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	return n + c + r, nil
 }
 
+func (w *Writer) AddCrLf(){
+	w.writer.Write([]byte("\r\n"))
+}
+
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	n, err := w.writer.Write([]byte("0\r\n\r\n"))
+	n, err := w.writer.Write([]byte("0\r\n"))
 	return n, err
 }
 
