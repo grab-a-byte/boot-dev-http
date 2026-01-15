@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,19 +30,35 @@ func main() {
 				w.WriteStatusLine(400)
 				w.WriteHeaders(defaultHeaders)
 				w.WriteBody([]byte(badRequestHtml))
+				return
 			}
 			if strings.Contains(path, "/myproblem") {
 				defaultHeaders.Set("Content-Length", fmt.Sprintf("%d", len(internalServerErrorHtml)))
 				w.WriteStatusLine(500)
 				w.WriteHeaders(defaultHeaders)
 				w.WriteBody([]byte(internalServerErrorHtml))
+				return
+			}
+
+			if strings.Contains(path, "/video") {
+				bytes, err := os.ReadFile("../.././assets/vim.mp4")
+				if err != nil {
+					slog.Info("%s", err)
+					return
+				}
+				defaultHeaders.Set("Content-Length", fmt.Sprintf("%d",len(bytes)))
+				defaultHeaders.Set("Content-Type", "video/mp4")
+				w.WriteStatusLine(200)
+				w.WriteHeaders(defaultHeaders)
+				w.WriteBody(bytes)
+				return
 			}
 
 			if after, ok := strings.CutPrefix(path, "/httpbin/"); ok {
 				w.WriteStatusLine(response.STATUS_OK)
 				defaultHeaders.Remove("Content-Length")
 				defaultHeaders.Set("Transfer-Encoding", "chunked")
-				// defaultHeaders.Set("Trailer", "X-Content-SHA256, X-Content-Length")
+				defaultHeaders.Set("Trailer", "X-Content-SHA256, X-Content-Length")
 				w.WriteHeaders(defaultHeaders)
 				proxied := "https://httpbin.org/" + after
 				res, err := http.Get(proxied)
